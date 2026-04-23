@@ -533,8 +533,8 @@ export default function HelpdeskHell() {
         <div className="max-w-2xl w-full border-2 border-green-500 bg-slate-950 p-8">
           <div className="text-center mb-6">
             <Trophy className="w-16 h-16 text-yellow-300 mx-auto"/>
-            <div className={`text-4xl font-bold mt-2 ${rank.color}`}>{rank.title}</div>
-            <div className="text-green-400 text-sm italic mt-2">"{rank.desc}"</div>
+<div className={"text-4xl font-bold mt-2 " + rank.color}>{rank.title}</div>
+<div className="text-green-400 text-sm italic mt-2">"{rank.desc}"</div>
           </div>
           <div className="grid grid-cols-4 gap-2 mb-6">
             <div className="border border-green-700 p-3 text-center"><div className="text-xs text-green-600">SANITY</div><div className="text-2xl text-red-400">{sanity}</div></div>
@@ -628,9 +628,9 @@ function Meter({ label, value, display, color }) {
   const colors = { red: { t: 'text-red-400', b: 'bg-red-500', o: 'border-red-900' }, blue: { t: 'text-blue-300', b: 'bg-blue-500', o: 'border-blue-900' }, yellow: { t: 'text-yellow-300', b: 'bg-yellow-500', o: 'border-yellow-900' } };
   const c = colors[color];
   return (
-    <div className={`border ${c.o} p-2 bg-black/30`}>
+    <div className={"border " + c.o + " p-2 bg-black/30"}>
       <div className="flex justify-between text-xs mb-1"><span className={c.t}>{label}</span><span className={c.t}>{display ?? Math.round(value)}</span></div>
-      <div className="w-full h-2 bg-slate-800 border border-slate-700"><div className={`h-full ${c.b} transition-all`} style={{ width: `${Math.max(0, Math.min(100, value))}%` }}/></div>
+      <div className="w-full h-2 bg-slate-800 border border-slate-700"><div className={"h-full " + c.b + " transition-all"} style={{ width: Math.max(0, Math.min(100, value)) + "%" }}/></div>
     </div>
   );
 }
@@ -638,5 +638,5 @@ function Meter({ label, value, display, color }) {
 function StatChange({ label, value }) {
   if (value === 0) return null;
   const color = value > 0 ? 'text-green-300 border-green-700' : 'text-red-300 border-red-700';
-  return <span className={`px-2 py-1 border ${color}`}>{label} {value > 0 ? '+' : ''}{value}</span>;
+  return <span className={"px-2 py-1 border " + color}>{label} {value > 0 ? '+' : ''}{value}</span>;
 }
