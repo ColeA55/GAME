@@ -573,7 +573,7 @@ export default function HelpdeskHell() {
           <div className="grid grid-cols-3 gap-3">
             <Meter label="SANITY" value={sanity} color="red"/>
             <Meter label="REP" value={rep} color="blue"/>
-            <Meter label="TICKETS" value={(closed / TICKETS_PER_SHIFT) * 100} display={`${closed}/${TICKETS_PER_SHIFT}`} color="yellow"/>
+            <Meter label="TICKETS" value={(closed / TICKETS_PER_SHIFT) * 100} display={closed + "/" + TICKETS_PER_SHIFT} color="yellow"/>
           </div>
         </div>
 
