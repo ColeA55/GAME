@@ -1,5 +1,120 @@
-import { useState, useMemo } from 'react';
-import { Monitor, AlertCircle, Mail, User, Phone, Skull, Trophy, RefreshCw, Coffee, Video } from 'lucide-react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { Monitor, AlertCircle, Mail, User, Phone, Skull, Trophy, RefreshCw, Coffee, Video, Volume2, VolumeX, Award, FileText, Copy, Check } from 'lucide-react';
+
+// ============================================================================
+// SOUND SYSTEM (Web Audio API — no files needed)
+// ============================================================================
+const playDing = (muted) => {
+  if (muted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // two-note ding: Outlook-ish
+    [880, 1320].forEach((freq, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = freq;
+      g.gain.value = 0;
+      g.gain.setValueAtTime(0, ctx.currentTime + i * 0.08);
+      g.gain.linearRampToValueAtTime(0.08, ctx.currentTime + i * 0.08 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.08 + 0.25);
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start(ctx.currentTime + i * 0.08);
+      o.stop(ctx.currentTime + i * 0.08 + 0.25);
+    });
+    setTimeout(() => ctx.close(), 600);
+  } catch (e) { /* browsers may block autoplay */ }
+};
+
+const playKerchunk = (muted) => {
+  if (muted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'square';
+    o.frequency.setValueAtTime(200, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(60, ctx.currentTime + 0.15);
+    g.gain.value = 0.05;
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + 0.2);
+    setTimeout(() => ctx.close(), 400);
+  } catch (e) {}
+};
+
+// ============================================================================
+// ACHIEVEMENTS
+// ============================================================================
+const ACHIEVEMENTS = {
+  hero: { id: 'hero', title: 'HELPDESK HERO', desc: 'Closed 8/8 with sanity ≥ 80 and rep ≥ 80.' },
+  coward: { id: 'coward', title: 'PURE COWARD', desc: 'Survived a full shift. Closed 2 or fewer tickets.' },
+  sociopath: { id: 'sociopath', title: 'CYBER SOCIOPATH', desc: 'Finished with sanity 100 and rep under 20.' },
+  gilded: { id: 'gilded', title: 'GILDED CAGE', desc: 'Ended with rep 100 and sanity 5 or below.' },
+  messiah: { id: 'messiah', title: '15-MINUTE MESSIAH', desc: 'Promised "15 minutes" 4 or more times in one shift.' },
+  martyr: { id: 'martyr', title: 'BURNT OFFERING', desc: 'Closed all 8. Ended with sanity in single digits.' },
+  legend: { id: 'legend', title: 'PARKING LOT LEGEND', desc: 'Unlocked every other achievement.' },
+};
+
+const loadAchievements = () => {
+  try { return JSON.parse(localStorage.getItem('hh_achievements') || '[]'); }
+  catch { return []; }
+};
+const saveAchievements = (list) => {
+  try { localStorage.setItem('hh_achievements', JSON.stringify(list)); } catch {}
+};
+
+// ============================================================================
+// MID-SHIFT EVENTS — random office interruptions between tickets
+// ============================================================================
+const MIDSHIFT_EVENTS = [
+  { icon: "☕", text: "Coffee pot is empty. Nobody changed the filter. You know who.", sanity: -5, rep: 0 },
+  { icon: "🚪", text: "Gary is standing outside your cubicle. Not speaking. Just... there. Eye contact.", sanity: -8, rep: 0 },
+  { icon: "🖨️", text: "A printer in Suite 3B is beeping. Been beeping for 40 minutes. Nobody knows whose it is.", sanity: -4, rep: 0 },
+  { icon: "📧", text: "Ashley replied-all again. This one's a chili recipe. 6 people replied asking to be removed.", sanity: -3, rep: 0 },
+  { icon: "💬", text: "Someone added you to a Slack channel called '#it-questions!!!'. There are 14 unread.", sanity: -6, rep: 0 },
+  { icon: "🎂", text: "Cake in the breakroom. You miss it. It was Linda's. She is pretending not to be hurt.", sanity: -2, rep: -3 },
+  { icon: "📺", text: "Conference Room B projector won't connect. You can hear yelling through two walls.", sanity: -3, rep: 0 },
+  { icon: "🔐", text: "Someone changed the building WiFi password without telling IT. IT is you. IT is livid.", sanity: -5, rep: -2 },
+  { icon: "🍕", text: "Tyler ordered 12 pizzas to the office. For himself. On the city card. You laugh involuntarily.", sanity: 3, rep: 0 },
+  { icon: "📱", text: "Your phone buzzes. It's your mom. 'Is the IT thing still a job?' You stare at the ceiling.", sanity: -4, rep: 0 },
+  { icon: "🌐", text: "Building WiFi just dropped. 4 people are already walking toward your desk. You see them.", sanity: -6, rep: -2 },
+  { icon: "📎", text: "Someone added you to 14 recurring calendar invites. All named 'Sync.' No description.", sanity: -5, rep: 0 },
+  { icon: "🤝", text: "The new intern just asked you what 'PDF' stands for. Genuinely. She has a laptop open.", sanity: -3, rep: 1 },
+  { icon: "⌨️", text: "You hear Frank's keyboard click from two rooms away. Wet. Unmistakable. He's eating again.", sanity: -4, rep: 0 },
+  { icon: "🪴", text: "The office plant in the corner died. Nobody is talking about it. It's been three weeks.", sanity: -2, rep: 0 },
+  { icon: "🧃", text: "You find a Capri Sun in the fridge labeled 'PROPERTY OF FRANK — BOOBY TRAPPED.' Is it, though?", sanity: 2, rep: 0 },
+  { icon: "📞", text: "Patricia called IT 4 times in the last hour. You have not answered once. You can hear the phone.", sanity: -5, rep: -3 },
+  { icon: "🎧", text: "Somebody unplugged your headphones to use the charger. Your headphones are wireless.", sanity: -4, rep: 0 },
+  { icon: "🧾", text: "Finance emailed about 'a pattern of keyboard purchases.' You archived it. You will not survive this decision.", sanity: -3, rep: -4 },
+  { icon: "🏢", text: "The elevator is stuck. Harold is in it. Harold has been in it for 22 minutes. You know this. You did nothing.", sanity: 4, rep: -5 },
+  { icon: "📅", text: "A meeting titled 'Brian — quick chat' appeared on your calendar. No agenda. 4:45 PM.", sanity: -6, rep: 0 },
+  { icon: "🦆", text: "There's a duck in the parking lot. It has been there for three days. People are naming it. HR is involved.", sanity: 2, rep: 0 },
+];
+
+// Scaling passive drain — the shift wears you down
+const getDrain = (nextTicketIndex) => {
+  if (nextTicketIndex <= 1) return 0;
+  if (nextTicketIndex <= 3) return 1;
+  if (nextTicketIndex <= 5) return 3;
+  return 5;
+};
+
+// Sanity ceiling — your peak mental capacity decays across the day.
+// You can still be "at your best" but your best is worse by 4pm.
+const getSanityCeiling = (ticketIdx) => {
+  const ceilings = [100, 100, 95, 85, 75, 65, 58, 52];
+  return ceilings[Math.min(ticketIdx, ceilings.length - 1)];
+};
+
+// Thematic time-of-day label per ticket (pure flavor)
+const getShiftTime = (ticketIdx) => {
+  const times = ["9:02 AM", "10:15 AM", "11:30 AM", "12:45 PM", "1:40 PM", "2:55 PM", "3:48 PM", "4:38 PM"];
+  return times[Math.min(ticketIdx, times.length - 1)];
+};
 
 const Defs = () => (
   <defs>
@@ -413,6 +528,93 @@ const CHARACTERS = {
   ]},
 };
 
+// ============================================================================
+// BOSS TICKETS — always the 8th (final) ticket of a shift
+// These reference the running counters and your earlier choices.
+// ============================================================================
+const BOSS_KEYS = ['fifteen', 'hr', 'boss', 'mayor']; // reserved for ticket 8
+
+// Dynamic boss tickets built from the running counters
+const buildDynamicBoss = (counters, promises, cowardly) => {
+  const pool = [];
+
+  // The "15 minutes" reckoning — only if player lied at least 3 times
+  if (promises >= 3) {
+    pool.push({
+      charKey: '_boss_fifteen',
+      from: "YOUR BOSS (4th email today)",
+      dept: "IT Management",
+      channel: 'teams',
+      sceneId: 'fifteen_minutes',
+      subject: "the '15 minutes' situation",
+      message: `It has come to my attention that you have told ${promises} different people today 'someone will be there in 15 minutes.' It is now 4:38 PM. Harold has been waiting ${Math.floor(counters.haroldWait/60)}h ${counters.haroldWait%60}m. Two people have filed grievances. One brought a sleeping bag. Please explain yourself.`,
+      choices: [
+        { text: "'Boss. 15 minutes isn't a unit of time. It's a concept. A vibe.'", sanity: 20, rep: -15, close: true, result: "Long silence on Teams. Then: 'Come to my office.' In 15 minutes. You both know exactly what this means. You both know." },
+        { text: "Sprint to all of them. Apologize. Actually fix everything. Die inside.", sanity: -30, rep: 30, close: true, result: "Miss lunch. Miss dinner. Miss the will to live. Every ticket closes. You are a hero. A broken, hungry, damp hero. Harold thanks you. You weep." },
+        { text: "Reply: 'Someone will be there in 15 minutes.'", sanity: 25, rep: -25, close: false, result: "She laughs audibly from down the hall. Then stops laughing. Then starts walking toward you. Fast. This is the last document in your work history." },
+        { text: "Blame the ticketing system. 'Auto-reply. Filing a report on myself.'", sanity: 10, rep: -5, close: true, result: "She knows. You know. She knows you know. She knows you know she knows. But the paperwork is clean. In IT, paperwork is the only truth." },
+      ],
+    });
+  }
+
+  // The Ashley reply-all meltdown — if her counter hit critical mass
+  if (counters.ashleyEmails >= 30000) {
+    pool.push({
+      charKey: '_boss_ashley_meltdown',
+      from: "ENTIRE ORG (everyone. literally everyone.)",
+      dept: "[SMTP SERVER STATUS: DYING]",
+      channel: 'email',
+      sceneId: 'ashley_replyall',
+      subject: `RE: RE: RE: RE: ... (${counters.ashleyEmails.toLocaleString()} emails)`,
+      message: `Ashley's reply-all chain is now at ${counters.ashleyEmails.toLocaleString()} emails. The CTO just replied-all to announce reply-all was being disabled — using reply-all. The SMTP server is emitting smoke. The CFO replied from her hospital bed. The INTERN replied. The intern was fired last Tuesday. This is escalating faster than you can measure. The Mayor just walked into IT. He is crying.`,
+      choices: [
+        { text: "Nuke the DL. Burn the server closet. Deny under oath.", sanity: 20, rep: 20, close: true, result: "You delete the DL. Emails stop. Server cools. You delete the logs. Then the logs-of-deletions. Immaculate. Nobody can prove it was you." },
+        { text: "Send a city-wide email. Subject: 'Shhhhh.' Body: a single period.", sanity: 25, rep: 15, close: true, result: "It works. Instantly. The storm ends. 'The Period Email' becomes a Harvard Business Review case study. You deserve a Nobel. You get a gift card to Applebee's." },
+        { text: "Reply-all with a screaming goat gif. Go down with the ship.", sanity: 35, rep: -30, close: true, result: "You hit send. The server dies seconds later. Coincidence. Legend. You are named in 19 complaints. You frame the first one. You and Ashley get coffee." },
+        { text: "Unplug every router in the building. Claim 'solar flare.'", sanity: 15, rep: 5, close: true, result: "The building goes dark for 40 minutes. By the time it's back, people have forgotten. You have weaponized forgetfulness. You are a cybersecurity god." },
+      ],
+    });
+  }
+
+  // Default boss: the Mayor walks in
+  pool.push({
+    charKey: '_boss_mayor',
+    from: "Jeff, The Mayor (in person)",
+    dept: "Top of Food Chain",
+    channel: 'walk-up',
+    sceneId: 'mayor_printer',
+    subject: "[he is in your cubicle. right now.]",
+    message: `The Mayor is here. Standing in your cubicle. Sweating. There are ${counters.frankKeyboards} Frank-keyboards in the closet behind you. ${counters.haroldWait >= 180 ? `Harold has been waiting ${Math.floor(counters.haroldWait/60)} hours. He is visible from here.` : ''} Jeff's ribbon-cutting is in 8 minutes. The Channel 8 truck is in the parking lot. His speech is "inside the printer." He is not blinking. He is holding a binder. The binder is empty.`,
+    choices: [
+      { text: "Sprint to the printer room. Printer CPR. Reach inside. Pray.", sanity: -15, rep: 25, close: true, result: "You find the speech. Also: a melted Snickers from 2022. Also: Gary's Post-it that says 'THE MONITOR IS NOT THE COMPUTER.' Also: a live cricket. You hand him the speech. He weeps. You never mention the cricket." },
+      { text: "Email him the speech as a PDF. Read from phone. 4 minutes.", sanity: -2, rep: 20, close: true, result: "He nails it on-air. Mentions you by name to the Morning News. Your mom sees it at 6. She tapes the broadcast. She shows it at bridge club. You peaked today." },
+      { text: "'Sir. The printer is a cursed object. We must negotiate with it.'", sanity: 15, rep: 5, close: true, result: "He asks what it wants. You say 'blood.' He nods dead-serious and rolls up his sleeve. You stop him. Mostly. He will never trust machines again. Good." },
+      { text: "'Sir I'm on break. Put in a ticket. Someone will be there in 15 min.'", sanity: 30, rep: -30, close: false, result: "His eye twitches once. He walks out silently. You hear him dial a number. You hear him whisper. The word 'transferred' is audible. You polish your resume." },
+    ],
+  });
+
+  // Random HR summons — the reckoning
+  if (cowardly >= 4) {
+    pool.push({
+      charKey: '_boss_hr',
+      from: "HR (Official) — CEASE AND DESIST",
+      dept: "HR — The Real One",
+      channel: 'email',
+      sceneId: 'hr_official',
+      subject: "Re: incident report (your conduct, cumulative)",
+      message: `We have received ${cowardly + 7} reports this month. Unresolved tickets. The parking-lot hammer incident. The Slim Jim exchange. Something about an Ethernet suit. Gary filed a commendation AND a complaint in the same email. Harold filed a commendation from 1974. Please come to the 3rd floor. Bring your badge. Both of them. You know which two.`,
+      choices: [
+        { text: "Go. Face the music. Accept punishment professionally.", sanity: -20, rep: 25, close: true, result: "You apologize. Attend sensitivity training. Survive. You are a better, sadder, slightly damper man. You own a plant now. You named it Harold." },
+        { text: "Reply: 'Ticketing policy requires I close all tickets before I move. I have 6 open.'", sanity: 15, rep: -10, close: true, result: "HR doesn't know if you're joking. You don't know if you're joking. Schrödinger's malicious compliance. The meeting is rescheduled for never." },
+        { text: "Show up in a full suit literally made of Ethernet cables.", sanity: 30, rep: -25, close: true, result: "HR is speechless. Security is called. You are escorted out. You are on the company's Instagram within the hour. 4.2K likes. You trend locally. Mixed outcome." },
+        { text: "Forward it to yourself. Delete the original. Plausible deniability.", sanity: 5, rep: -5, close: false, result: "You bought 3 business days. The reckoning is still coming. It is always coming. You cannot outrun HR forever. Nobody can. Not even Jesus." },
+      ],
+    });
+  }
+
+  return pool[Math.floor(Math.random() * pool.length)];
+};
+
 const RANKS = [
   { min: 90, title: "Helpdesk Hero", desc: "You are the IT whisperer. They'll name a server rack after you.", color: "text-yellow-300" },
   { min: 70, title: "Tier 2 Tank", desc: "Competent, caffeinated, and cursed. A solid day.", color: "text-green-400" },
@@ -420,6 +622,29 @@ const RANKS = [
   { min: 30, title: "Ctrl-Alt-Defeated", desc: "Technically employed. That's the best we can say.", color: "text-orange-400" },
   { min: 0, title: "RTFM Refugee", desc: "Currently updating your LinkedIn. Cursor blinking. Mocking you.", color: "text-red-400" },
 ];
+
+// Special endings that override ranks — trigger on specific patterns
+const getSpecialEnding = ({ sanity, rep, closed, promises, cowardly }) => {
+  if (closed === 8 && sanity < 20 && rep >= 75) {
+    return { title: "PROMOTED TO MIDDLE MANAGEMENT", desc: "Congratulations? You now have 3 direct reports and 11 recurring meetings. You will never touch a keyboard again. This is what winning looks like, apparently.", color: "text-purple-400" };
+  }
+  if (closed <= 2 && sanity >= 70) {
+    return { title: "STARTED A STARTUP", desc: "You quit mid-shift. Told your boss you were 'going to disrupt something.' You don't know what yet. Your Y Combinator application is open in another tab. You are 22. You will be fine.", color: "text-cyan-300" };
+  }
+  if (closed === 8 && rep < 40 && sanity >= 60) {
+    return { title: "TRANSFERRED TO FRISCO", desc: "Somebody pulled a string. You are now Frisco IT. They have nicer chairs and a Topgolf nearby. Your old coworkers speak of you in whispers, like a saint who escaped Purgatory. You don't answer their Slacks.", color: "text-blue-400" };
+  }
+  if (promises >= 4 && closed === 8) {
+    return { title: "15-MINUTE MESSIAH", desc: `You promised "15 minutes" ${promises} times today. You delivered ${promises} times. Somehow. People are asking what your secret is. Your secret is you are teleporting. You cannot sustain this. You will combust by Thursday.`, color: "text-amber-300" };
+  }
+  if (closed === 8 && sanity <= 10 && rep >= 80) {
+    return { title: "BURNT OFFERING", desc: "Every ticket closed. Your reputation intact. Your soul: a charred husk. You have not eaten since breakfast. You wink and a tear of pure cortisol rolls down your cheek. Tomorrow you do it again. You are already counting the minutes.", color: "text-red-300" };
+  }
+  if (closed < 4 && sanity >= 50) {
+    return { title: "BECAME GARY", desc: "You've been here too long. You don't answer your tickets anymore. You wander the halls. You know every snack-drawer location. Someone younger does your job now. They say 'hi' when you pass. You say 'hi' back. Slowly. Like Gary.", color: "text-stone-400" };
+  }
+  return null;
+};
 
 const CHANNEL_ICON = { 'walk-up': User, 'email': Mail, 'phone': Phone, 'teams': Monitor, 'slack': Monitor };
 const TICKETS_PER_SHIFT = 8;
@@ -441,41 +666,139 @@ export default function HelpdeskHell() {
   const [highlights, setHighlights] = useState([]);
   const [gameOverReason, setGameOverReason] = useState(null);
 
+  // NEW: running counters, behavior tracking, sound, achievements
+  const [counters, setCounters] = useState({ haroldWait: 0, ashleyEmails: 8000, frankKeyboards: 47 });
+  const [promises, setPromises] = useState(0); // "15 minutes" lies
+  const [cowardly, setCowardly] = useState(0); // unresolved tickets
+  const [muted, setMuted] = useState(false);
+  const [achievements, setAchievements] = useState(loadAchievements());
+  const [newAchievements, setNewAchievements] = useState([]);
+  const [copied, setCopied] = useState(false);
+  const [midShiftEvent, setMidShiftEvent] = useState(null);
+
   const startShift = () => {
-    const charKeys = Object.keys(CHARACTERS);
-    const picked = shuffle(charKeys).slice(0, TICKETS_PER_SHIFT);
-    const tickets = picked.map(key => {
+    const charKeys = Object.keys(CHARACTERS).filter(k => !BOSS_KEYS.includes(k));
+    const picked = shuffle(charKeys).slice(0, TICKETS_PER_SHIFT - 1); // 7 regular
+    const regular = picked.map(key => {
       const char = CHARACTERS[key];
       const variant = char.tickets[Math.floor(Math.random() * char.tickets.length)];
       return { ...variant, from: char.name, dept: char.dept, charKey: key };
     });
-    setShiftTickets(tickets);
+    // placeholder 8th — real boss is built at reveal time using live counters
+    setShiftTickets([...regular, { __boss: true }]);
     setTicketIndex(0); setSanity(100); setRep(100); setClosed(0);
+    setCounters({ haroldWait: 0, ashleyEmails: 8000, frankKeyboards: 47 });
+    setPromises(0); setCowardly(0); setNewAchievements([]); setCopied(false);
     setLastResult(null); setHighlights([]); setGameOverReason(null);
+    setMidShiftEvent(null);
     setGameState('playing');
   };
 
-  const currentTicket = shiftTickets[ticketIndex];
+  // Resolve current ticket (substituting dynamic boss if needed)
+  const rawTicket = shiftTickets[ticketIndex];
+  const currentTicket = useMemo(() => {
+    if (!rawTicket) return null;
+    if (rawTicket.__boss) return buildDynamicBoss(counters, promises, cowardly);
+    return rawTicket;
+  }, [rawTicket, counters, promises, cowardly]);
 
   const handleChoice = (choice) => {
-    const newSanity = Math.max(0, Math.min(100, sanity + choice.sanity));
+    const ceiling = getSanityCeiling(ticketIndex);
+    const newSanity = Math.max(0, Math.min(ceiling, sanity + choice.sanity));
     const newRep = Math.max(0, Math.min(100, rep + choice.rep));
     const newClosed = closed + (choice.close ? 1 : 0);
     setSanity(newSanity); setRep(newRep); setClosed(newClosed);
     setLastResult({ choice });
     setHighlights([...highlights, { ticket: currentTicket, choice }]);
+    // track behavior
+    if (/15 min|15 minutes/i.test(choice.text) || /15 min|15 minutes/i.test(choice.result || '')) {
+      setPromises(p => p + 1);
+    }
+    if (!choice.close) setCowardly(c => c + 1);
+    playKerchunk(muted);
     if (newSanity <= 0) setTimeout(() => { setGameOverReason('sanity'); setGameState('gameover'); }, 100);
     else if (newRep <= 0) setTimeout(() => { setGameOverReason('rep'); setGameState('gameover'); }, 100);
   };
 
   const nextTicket = () => {
     setLastResult(null);
-    if (ticketIndex + 1 >= shiftTickets.length) setGameState('victory');
-    else setTicketIndex(ticketIndex + 1);
+    setMidShiftEvent(null); // clear previous event
+    const nextIndex = ticketIndex + 1;
+
+    // advance running counters between tickets
+    setCounters(c => ({
+      haroldWait: c.haroldWait + 45 + Math.floor(Math.random() * 75),
+      ashleyEmails: Math.floor(c.ashleyEmails * (1.4 + Math.random() * 0.6)),
+      frankKeyboards: c.frankKeyboards + (Math.random() < 0.35 ? 1 : 0),
+    }));
+
+    if (nextIndex >= shiftTickets.length) {
+      setGameState('victory');
+      return;
+    }
+
+    // scaling passive drain — the grind wears you down
+    const drain = getDrain(nextIndex);
+    let sanityAfterDrain = Math.max(0, sanity - drain);
+
+    // roll for mid-shift event (30% chance, never before ticket 2, never on boss)
+    const isBossNext = shiftTickets[nextIndex]?.__boss;
+    let eventFired = null;
+    if (nextIndex >= 1 && !isBossNext && Math.random() < 0.35) {
+      eventFired = MIDSHIFT_EVENTS[Math.floor(Math.random() * MIDSHIFT_EVENTS.length)];
+      sanityAfterDrain = Math.max(0, Math.min(100, sanityAfterDrain + eventFired.sanity));
+      setRep(r => Math.max(0, Math.min(100, r + eventFired.rep)));
+    }
+
+    // enforce the sanity ceiling — your "max possible" shrinks as the day ages
+    const newCeiling = getSanityCeiling(nextIndex);
+    sanityAfterDrain = Math.min(sanityAfterDrain, newCeiling);
+
+    setSanity(sanityAfterDrain);
+    setMidShiftEvent(eventFired);
+    setTicketIndex(nextIndex);
+    playDing(muted);
+
+    // drain could kill the player
+    if (sanityAfterDrain <= 0) {
+      setTimeout(() => { setGameOverReason('sanity'); setGameState('gameover'); }, 100);
+    }
   };
 
   const finalScore = useMemo(() => Math.round((sanity + rep + (closed / TICKETS_PER_SHIFT) * 100) / 3), [sanity, rep, closed]);
   const rank = useMemo(() => RANKS.find(r => finalScore >= r.min) || RANKS[RANKS.length - 1], [finalScore]);
+  const specialEnding = useMemo(
+    () => gameState === 'victory' ? getSpecialEnding({ sanity, rep, closed, promises, cowardly }) : null,
+    [gameState, sanity, rep, closed, promises, cowardly]
+  );
+  const finalRank = specialEnding || rank;
+
+  // Achievement detection on victory
+  useEffect(() => {
+    if (gameState !== 'victory') return;
+    const unlocked = new Set(achievements);
+    const fresh = [];
+    const tryUnlock = (id) => { if (!unlocked.has(id)) { unlocked.add(id); fresh.push(id); } };
+    if (closed === 8 && sanity >= 80 && rep >= 80) tryUnlock('hero');
+    if (closed <= 2) tryUnlock('coward');
+    if (sanity === 100 && rep < 20) tryUnlock('sociopath');
+    if (rep === 100 && sanity <= 5) tryUnlock('gilded');
+    if (promises >= 4) tryUnlock('messiah');
+    if (closed === 8 && sanity <= 9) tryUnlock('martyr');
+    // legend = all others
+    const others = ['hero','coward','sociopath','gilded','messiah','martyr'];
+    if (others.every(id => unlocked.has(id))) tryUnlock('legend');
+    if (fresh.length > 0) {
+      const newList = Array.from(unlocked);
+      setAchievements(newList);
+      saveAchievements(newList);
+      setNewAchievements(fresh);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState]);
+
+  // Glitch intensity derived from sanity
+  const glitchLevel = sanity < 30 ? 2 : sanity < 55 ? 1 : 0;
 
   if (gameState === 'title') {
     return (
@@ -498,7 +821,27 @@ export default function HelpdeskHell() {
               <div><span className="text-yellow-300">● TICKETS</span><br/>close 8 = survive</div>
             </div>
           </div>
-          <button onClick={startShift} className="w-full bg-green-500 hover:bg-green-400 text-black font-bold py-4 text-lg transition border-2 border-green-300">&gt; PUNCH IN_</button>
+          {achievements.length > 0 && (
+            <div className="border border-green-700 bg-black/50 p-3 mb-6 text-xs">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-yellow-300 flex items-center gap-1"><Award className="w-3 h-3"/> ACHIEVEMENTS</span>
+                <span className="text-green-600">{achievements.length}/{Object.keys(ACHIEVEMENTS).length}</span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {Object.values(ACHIEVEMENTS).map(a => (
+                  <span key={a.id} title={a.desc} className={"px-1.5 py-0.5 border text-[10px] " + (achievements.includes(a.id) ? "border-yellow-500 text-yellow-300" : "border-green-900 text-green-800")}>
+                    {achievements.includes(a.id) ? a.title : '???'}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2 items-center">
+            <button onClick={startShift} className="flex-1 bg-green-500 hover:bg-green-400 text-black font-bold py-4 text-lg transition border-2 border-green-300">&gt; PUNCH IN_</button>
+            <button onClick={() => setMuted(!muted)} title={muted ? 'Unmute' : 'Mute'} className="border-2 border-green-500 hover:bg-green-900/30 text-green-300 p-3">
+              {muted ? <VolumeX className="w-5 h-5"/> : <Volume2 className="w-5 h-5"/>}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -527,58 +870,64 @@ export default function HelpdeskHell() {
   }
 
   if (gameState === 'victory') {
-    return (
-      <div className="min-h-screen bg-slate-900 text-green-400 font-mono p-6 flex items-center justify-center">
-        <div className="max-w-2xl w-full border-2 border-green-500 bg-slate-950 p-8">
-          <div className="text-center mb-6">
-            <Trophy className="w-16 h-16 text-yellow-300 mx-auto"/>
-<div className={"text-4xl font-bold mt-2 " + rank.color}>{rank.title}</div>
-<div className="text-green-400 text-sm italic mt-2">"{rank.desc}"</div>
-          </div>
-          <div className="grid grid-cols-4 gap-2 mb-6">
-            <div className="border border-green-700 p-3 text-center"><div className="text-xs text-green-600">SANITY</div><div className="text-2xl text-red-400">{sanity}</div></div>
-            <div className="border border-green-700 p-3 text-center"><div className="text-xs text-green-600">REP</div><div className="text-2xl text-blue-300">{rep}</div></div>
-            <div className="border border-green-700 p-3 text-center"><div className="text-xs text-green-600">CLOSED</div><div className="text-2xl text-yellow-300">{closed}/{TICKETS_PER_SHIFT}</div></div>
-            <div className="border border-green-700 p-3 text-center"><div className="text-xs text-green-600">SCORE</div><div className="text-2xl text-green-300">{finalScore}</div></div>
-          </div>
-          <div className="border border-green-700 bg-black/50 p-4 mb-6">
-            <div className="text-yellow-300 mb-3 text-sm">&gt; HIGHLIGHTS</div>
-            <div className="space-y-2 text-xs max-h-64 overflow-y-auto">
-              {highlights.map((h, i) => (
-                <div key={i} className="border-l-2 border-green-800 pl-3">
-                  <div className="text-green-500">#{i+1} - {h.ticket.from}</div>
-                  <div className="text-green-300 italic">"{h.choice.text}"</div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <button onClick={startShift} className="w-full bg-green-500 hover:bg-green-400 text-black font-bold py-3 transition border-2 border-green-300 flex items-center justify-center gap-2"><Coffee className="w-4 h-4"/> CLOCK IN AGAIN</button>
-        </div>
-      </div>
-    );
+    return <IncidentReport
+      finalRank={finalRank}
+      sanity={sanity} rep={rep} closed={closed}
+      finalScore={finalScore}
+      promises={promises} cowardly={cowardly}
+      counters={counters}
+      highlights={highlights}
+      newAchievements={newAchievements}
+      onRestart={startShift}
+      copied={copied}
+      setCopied={setCopied}
+    />;
   }
 
+  if (!currentTicket) return null;
   const ChannelIcon = CHANNEL_ICON[currentTicket.channel] || Mail;
   const scene = SCENES[currentTicket.sceneId];
 
   return (
-    <div className="min-h-screen bg-slate-900 text-green-400 font-mono p-4">
+    <div className={"min-h-screen bg-slate-900 font-mono p-4 " + (glitchLevel === 2 ? "hh-glitch-heavy text-amber-300" : glitchLevel === 1 ? "hh-glitch-mild text-green-300" : "text-green-400")}>
       <div className="max-w-3xl mx-auto">
         <div className="border-2 border-green-500 bg-slate-950 p-3 mb-3">
           <div className="flex justify-between items-center mb-3">
             <div className="text-green-300 font-bold text-sm">HELPDESK_HELL.exe</div>
-            <div className="text-xs text-green-600">ticket {ticketIndex + 1}/{shiftTickets.length} • closed: {closed}</div>
+            <div className="flex items-center gap-2">
+              <div className="text-xs text-green-600">ticket {ticketIndex + 1}/{shiftTickets.length} • closed: {closed}</div>
+              <button onClick={() => setMuted(!muted)} className="text-green-500 hover:text-green-300">
+                {muted ? <VolumeX className="w-3 h-3"/> : <Volume2 className="w-3 h-3"/>}
+              </button>
+            </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <Meter label="SANITY" value={sanity} color="red"/>
+          <div className="grid grid-cols-3 gap-3 mb-3">
+            <Meter label="SANITY" value={sanity} ceiling={getSanityCeiling(ticketIndex)} color="red"/>
             <Meter label="REP" value={rep} color="blue"/>
             <Meter label="TICKETS" value={(closed / TICKETS_PER_SHIFT) * 100} display={closed + "/" + TICKETS_PER_SHIFT} color="yellow"/>
           </div>
+          <ShiftStatus counters={counters} promises={promises} time={getShiftTime(ticketIndex)} />
         </div>
+
+        {midShiftEvent && !lastResult && (
+          <div className="border-2 border-amber-500 bg-amber-950/30 p-3 mb-3 text-sm animate-pulse">
+            <div className="flex items-start gap-3">
+              <div className="text-2xl leading-none">{midShiftEvent.icon}</div>
+              <div className="flex-1">
+                <div className="text-[10px] text-amber-400 uppercase tracking-wider mb-1">— mid-shift interrupt —</div>
+                <div className="text-amber-200 italic">{midShiftEvent.text}</div>
+                <div className="flex gap-2 mt-2 text-xs">
+                  {midShiftEvent.sanity !== 0 && <StatChange label="SANITY" value={midShiftEvent.sanity}/>}
+                  {midShiftEvent.rep !== 0 && <StatChange label="REP" value={midShiftEvent.rep}/>}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {!lastResult ? (
           <div className="border-2 border-green-500 bg-slate-950 p-4 mb-3">
-            <div className="mb-3 border border-green-700 bg-black overflow-hidden relative">
+            <div className={"mb-3 border border-green-700 bg-black overflow-hidden relative " + (glitchLevel === 2 ? "hh-scene-heavy" : glitchLevel === 1 ? "hh-scene-mild" : "")}>
               <div className="absolute top-1 left-2 text-xs text-green-500 font-mono z-10 flex items-center gap-1"><Video className="w-3 h-3"/> SERVICE DESK VIEW</div>
               {scene}
             </div>
@@ -586,6 +935,7 @@ export default function HelpdeskHell() {
               <div className="flex items-center gap-2 mb-2">
                 <ChannelIcon className="w-4 h-4 text-yellow-300"/>
                 <span className="text-xs text-yellow-300 uppercase">{currentTicket.channel}</span>
+                {rawTicket.__boss && <span className="text-xs text-red-400 uppercase ml-auto animate-pulse">⚠ FINAL TICKET</span>}
               </div>
               <div className="text-green-300 text-sm"><span className="text-green-600">FROM:</span> {currentTicket.from}</div>
               <div className="text-green-500 text-xs"><span className="text-green-700">DEPT:</span> {currentTicket.dept}</div>
@@ -619,17 +969,28 @@ export default function HelpdeskHell() {
           </div>
         )}
       </div>
+      <GlitchStyles />
     </div>
   );
 }
 
-function Meter({ label, value, display, color }) {
+function Meter({ label, value, display, color, ceiling }) {
   const colors = { red: { t: 'text-red-400', b: 'bg-red-500', o: 'border-red-900' }, blue: { t: 'text-blue-300', b: 'bg-blue-500', o: 'border-blue-900' }, yellow: { t: 'text-yellow-300', b: 'bg-yellow-500', o: 'border-yellow-900' } };
   const c = colors[color];
+  const showCeiling = typeof ceiling === 'number' && ceiling < 100;
+  const displayValue = display ?? (showCeiling ? `${Math.round(value)}/${ceiling}` : Math.round(value));
   return (
     <div className={"border " + c.o + " p-2 bg-black/30"}>
-      <div className="flex justify-between text-xs mb-1"><span className={c.t}>{label}</span><span className={c.t}>{display ?? Math.round(value)}</span></div>
-      <div className="w-full h-2 bg-slate-800 border border-slate-700"><div className={"h-full " + c.b + " transition-all"} style={{ width: Math.max(0, Math.min(100, value)) + "%" }}/></div>
+      <div className="flex justify-between text-xs mb-1">
+        <span className={c.t}>{label}</span>
+        <span className={c.t}>{displayValue}</span>
+      </div>
+      <div className="w-full h-2 bg-slate-800 border border-slate-700 relative overflow-hidden">
+        {showCeiling && (
+          <div className="absolute top-0 right-0 h-full bg-slate-950/70 border-l border-dashed border-slate-500" style={{ width: (100 - ceiling) + "%" }}/>
+        )}
+        <div className={"h-full " + c.b + " transition-all relative z-[1]"} style={{ width: Math.max(0, Math.min(100, value)) + "%" }}/>
+      </div>
     </div>
   );
 }
@@ -638,4 +999,199 @@ function StatChange({ label, value }) {
   if (value === 0) return null;
   const color = value > 0 ? 'text-green-300 border-green-700' : 'text-red-300 border-red-700';
   return <span className={"px-2 py-1 border " + color}>{label} {value > 0 ? '+' : ''}{value}</span>;
+}
+
+// ============================================================================
+// SHIFT STATUS — living office counters below the meters
+// ============================================================================
+function ShiftStatus({ counters, promises, time }) {
+  const hours = Math.floor(counters.haroldWait / 60);
+  const mins = counters.haroldWait % 60;
+  return (
+    <div className="border-t border-green-900 pt-2 mt-1 text-[10px] text-green-600 font-mono flex flex-wrap gap-x-4 gap-y-1">
+      {time && <span>🕐 <span className="text-amber-400">{time}</span></span>}
+      <span>● Harold waiting: <span className="text-yellow-500">{hours > 0 ? `${hours}h ${mins}m` : `${mins}m`}</span></span>
+      <span>● Ashley reply-all: <span className="text-red-500">{counters.ashleyEmails.toLocaleString()}</span></span>
+      <span>● Frank keyboards YTD: <span className="text-amber-500">{counters.frankKeyboards}</span></span>
+      {promises > 0 && <span>● "15 min" promises: <span className="text-red-400">{promises}</span></span>}
+    </div>
+  );
+}
+
+// ============================================================================
+// INCIDENT REPORT — end-of-shift summary (shareable)
+// ============================================================================
+function IncidentReport({ finalRank, sanity, rep, closed, finalScore, promises, cowardly, counters, highlights, newAchievements, onRestart, copied, setCopied }) {
+  const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' });
+  const worstChoice = highlights.find(h => h.choice.sanity < -10) || highlights.find(h => !h.choice.close);
+  const bestChoice = highlights.reduce((best, h) => (!best || h.choice.rep > best.choice.rep) ? h : best, null);
+
+  const bullets = [];
+  if (closed === 8) bullets.push("All 8 tickets closed. Employee exhibits 'unusually durable' demeanor.");
+  if (closed < 4) bullets.push(`Only ${closed} of 8 tickets resolved. Employee seen 'going to get coffee' ${8-closed} times.`);
+  if (promises >= 3) bullets.push(`Employee told ${promises} different people 'someone will be there in 15 minutes.' None arrived in that window.`);
+  if (cowardly >= 3) bullets.push(`${cowardly} tickets filed as 'unresolved — pending follow-up.' Follow-up pending since 9:02 AM.`);
+  if (counters.frankKeyboards >= 50) bullets.push(`Approximately $${(counters.frankKeyboards * 13).toLocaleString()} in replacement keyboards written off. Finance has questions.`);
+  if (counters.haroldWait >= 240) bullets.push(`Harold (Public Works) waited ${Math.floor(counters.haroldWait/60)}h ${counters.haroldWait%60}m. Still waiting as of clock-out.`);
+  if (counters.ashleyEmails >= 30000) bullets.push(`Reply-all incident reached ${counters.ashleyEmails.toLocaleString()} messages. SMTP server flagged for replacement.`);
+  if (sanity <= 10) bullets.push("Employee observed staring at printer for 'a while.' Check in recommended.");
+  if (rep >= 90) bullets.push("Commendations received from 3 departments. Pension contribution bumped 0.2%.");
+  if (rep <= 20) bullets.push("Complaints filed: multiple. HR file thickening. Nothing actionable yet.");
+  if (worstChoice) bullets.push(`Incident of note: "${worstChoice.choice.text.slice(0, 70)}${worstChoice.choice.text.length > 70 ? '...' : ''}"`);
+  if (bullets.length === 0) bullets.push("Uneventful shift. Employee present. Tickets closed. Nothing flagged.");
+
+  const reportText = [
+    "════════════════════════════════════",
+    "   INCIDENT REPORT — SHIFT " + today,
+    "════════════════════════════════════",
+    "",
+    "EMPLOYEE:        [REDACTED]",
+    "DEPT:            IT / Helpdesk",
+    "TICKETS CLOSED:  " + closed + "/" + 8,
+    "FINAL STATUS:    " + finalRank.title,
+    "",
+    "— NOTABLE INCIDENTS —",
+    ...bullets.map(b => "• " + b),
+    "",
+    "SANITY:    " + sanity + "/100",
+    "REP:       " + rep + "/100",
+    "SCORE:     " + finalScore,
+    "",
+    "OVERALL RATING: " + finalRank.title,
+    "RECOMMEND RETENTION PENDING Q3 REVIEW.",
+    "",
+    "— Helpdesk Hell —",
+  ].join("\n");
+
+  const copyReport = () => {
+    navigator.clipboard.writeText(reportText).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-green-400 font-mono p-4 md:p-6 flex items-start md:items-center justify-center">
+      <div className="max-w-2xl w-full border-2 border-green-500 bg-slate-950 p-6">
+        {/* corporate-memo header */}
+        <div className="text-center border-b border-green-700 pb-4 mb-4">
+          <div className="text-[10px] text-green-700 uppercase tracking-widest mb-1">City of Plana [INTERNAL USE ONLY]</div>
+          <div className="text-green-300 font-bold text-lg flex items-center justify-center gap-2"><FileText className="w-5 h-5"/>INCIDENT REPORT</div>
+          <div className="text-[10px] text-green-600 mt-1">Shift: {today} • Form IT-44b (Rev. 2019)</div>
+        </div>
+
+        {/* final rank */}
+        <div className="text-center mb-4">
+          <Trophy className="w-12 h-12 text-yellow-300 mx-auto"/>
+          <div className={"text-3xl font-bold mt-2 " + finalRank.color}>{finalRank.title}</div>
+          <div className="text-green-400 text-xs italic mt-2 max-w-md mx-auto">"{finalRank.desc}"</div>
+        </div>
+
+        {/* stats */}
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          <div className="border border-green-700 p-2 text-center"><div className="text-[10px] text-green-600">SANITY</div><div className="text-xl text-red-400">{sanity}</div></div>
+          <div className="border border-green-700 p-2 text-center"><div className="text-[10px] text-green-600">REP</div><div className="text-xl text-blue-300">{rep}</div></div>
+          <div className="border border-green-700 p-2 text-center"><div className="text-[10px] text-green-600">CLOSED</div><div className="text-xl text-yellow-300">{closed}/8</div></div>
+          <div className="border border-green-700 p-2 text-center"><div className="text-[10px] text-green-600">SCORE</div><div className="text-xl text-green-300">{finalScore}</div></div>
+        </div>
+
+        {/* notable incidents */}
+        <div className="border border-green-700 bg-black/50 p-4 mb-4">
+          <div className="text-yellow-300 text-xs mb-2 uppercase tracking-wider">— Notable Incidents —</div>
+          <ul className="space-y-1.5 text-xs text-green-200">
+            {bullets.map((b, i) => (
+              <li key={i} className="flex gap-2"><span className="text-green-600">•</span><span>{b}</span></li>
+            ))}
+          </ul>
+        </div>
+
+        {/* new achievements */}
+        {newAchievements.length > 0 && (
+          <div className="border border-yellow-500 bg-yellow-950/20 p-3 mb-4">
+            <div className="text-yellow-300 text-xs mb-2 flex items-center gap-2 uppercase tracking-wider"><Award className="w-4 h-4"/> Achievement{newAchievements.length > 1 ? 's' : ''} Unlocked</div>
+            <div className="space-y-1.5">
+              {newAchievements.map(id => (
+                <div key={id} className="text-xs">
+                  <span className="text-yellow-200 font-bold">★ {ACHIEVEMENTS[id].title}</span>
+                  <span className="text-yellow-600/70 ml-2">— {ACHIEVEMENTS[id].desc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* highlights — collapsed detail */}
+        <details className="border border-green-700 bg-black/50 p-3 mb-4 text-xs">
+          <summary className="text-yellow-300 cursor-pointer uppercase tracking-wider">— Ticket log ({highlights.length}) —</summary>
+          <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
+            {highlights.map((h, i) => (
+              <div key={i} className="border-l-2 border-green-800 pl-3">
+                <div className="text-green-500">#{i+1} · {h.ticket.from} {h.choice.close ? '· ✓' : '· ✗'}</div>
+                <div className="text-green-300 italic">"{h.choice.text}"</div>
+              </div>
+            ))}
+          </div>
+        </details>
+
+        {/* footer sign-off */}
+        <div className="text-[10px] text-green-700 italic border-t border-green-900 pt-3 mb-4 text-center">
+          Overall rating on file. Recommend retention pending Q3 review.<br/>
+          Unauthorized reproduction prohibited. Report is auto-generated by HELPDESK_HELL.exe.
+        </div>
+
+        {/* actions */}
+        <div className="flex gap-2">
+          <button onClick={copyReport} className="flex-1 border-2 border-green-500 hover:bg-green-900/30 text-green-300 font-bold py-3 text-sm transition flex items-center justify-center gap-2">
+            {copied ? <><Check className="w-4 h-4"/> COPIED</> : <><Copy className="w-4 h-4"/> COPY REPORT</>}
+          </button>
+          <button onClick={onRestart} className="flex-1 bg-green-500 hover:bg-green-400 text-black font-bold py-3 transition border-2 border-green-300 flex items-center justify-center gap-2 text-sm"><Coffee className="w-4 h-4"/> CLOCK IN AGAIN</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// GLITCH STYLES — injected once, keyed off sanity
+// ============================================================================
+function GlitchStyles() {
+  return (
+    <style>{`
+      @keyframes hh-jitter {
+        0%, 100% { transform: translate(0, 0); }
+        20% { transform: translate(-0.5px, 0.5px); }
+        40% { transform: translate(0.5px, -0.5px); }
+        60% { transform: translate(-0.5px, -0.5px); }
+        80% { transform: translate(0.5px, 0.5px); }
+      }
+      @keyframes hh-scanline {
+        0% { transform: translateY(-100%); }
+        100% { transform: translateY(200%); }
+      }
+      .hh-glitch-mild {
+        animation: hh-jitter 0.35s infinite steps(4);
+      }
+      .hh-glitch-heavy {
+        animation: hh-jitter 0.12s infinite steps(4);
+      }
+      .hh-scene-mild { filter: saturate(1.15) contrast(1.05); }
+      .hh-scene-heavy {
+        filter: saturate(1.4) contrast(1.1) hue-rotate(-12deg);
+        position: relative;
+      }
+      .hh-scene-heavy::before {
+        content: '';
+        position: absolute; left: 0; right: 0; top: 0; height: 2px;
+        background: rgba(239, 68, 68, 0.5);
+        animation: hh-scanline 1.8s linear infinite;
+        pointer-events: none; z-index: 5;
+      }
+      .hh-scene-heavy::after {
+        content: '';
+        position: absolute; inset: 0;
+        background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
+        pointer-events: none; z-index: 4;
+      }
+    `}</style>
+  );
 }
