@@ -1,4 +1,3 @@
-jsx
 import { useState, useMemo } from 'react';
 import { Monitor, AlertCircle, Mail, User, Phone, Skull, Trophy, RefreshCw, Coffee, Video } from 'lucide-react';
 
